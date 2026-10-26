@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="300" viewBox="0 0 1440 300" role="img" aria-labelledby="title desc">
+  <title id="title">Light → image → code → image</title>
+  <desc id="desc">One moment moves from a lens into a small image, becomes a QR code, and returns to sight through another camera.</desc>
+  <rect width="1440" height="300" rx="24" fill="#101011"/>
+  <g fill="none" stroke="#55555b" stroke-width="1">
+    <path d="M340 132h70m-10-7 10 7-10 7M680 132h70m-10-7 10 7-10 7M1020 132h70m-10-7 10 7-10 7"/>
+  </g>
+  <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" text-anchor="middle">
+    <g transform="translate(200 0)">
+      <g fill="none" stroke="#e9ff65" stroke-width="2"><circle cx="0" cy="112" r="25"/><path d="M0 72v-12M0 164v-12M40 112h12M-52 112h12M28 84l9-9M-37 149l9-9M28 140l9 9M-37 75l9 9"/></g>
+      <text y="202" fill="#fff" font-size="23" font-weight="600">LIGHT</text><text y="233" fill="#929297" font-size="16">a moment in front of you</text>
+    </g>
+    <g transform="translate(540 0)">
+      <rect x="-38" y="74" width="76" height="76" rx="2" fill="#45454a"/>
+      <circle cx="14" cy="96" r="9" fill="#e9ff65"/><path d="M-38 139l27-29 16 18 12-9 21 31h-76Z" fill="#8d8d95"/>
+      <text y="202" fill="#fff" font-size="23" font-weight="600">IMAGE</text><text y="233" fill="#929297" font-size="16">small enough to carry</text>
+    </g>
+    <g transform="translate(880 0)">
+      <rect x="-40" y="72" width="80" height="80" fill="#fff"/>
+      <g fill="#101011"><path d="M-32 80h24v24h-24zm48 0h16v24H8V80zm-48 48h24v16h-24v-24h24v8z"/><path d="M0 112h8v8H0zm16 0h16v8H16zm-16 16h8v16H0zm16 0h8v8h-8zm8 8h8v8h-8zm-56-24h16v8h-16z"/></g>
+      <g fill="#fff"><path d="M-24 88h8v8h-8zm40 0h8v8h-8zm-40 40h8v8h-8z"/></g>
+      <text y="202" fill="#fff" font-size="23" font-weight="600">CODE</text><text y="233" fill="#929297" font-size="16">the picture, in another alphabet</text>
+    </g>
+    <g transform="translate(1220 0)">
+      <rect x="-38" y="74" width="76" height="76" rx="2" fill="#45454a"/>
+      <circle cx="14" cy="96" r="9" fill="#e9ff65"/><path d="M-38 139l27-29 16 18 12-9 21 31h-76Z" fill="#8d8d95"/>
+      <text y="202" fill="#fff" font-size="23" font-weight="600">IMAGE</text><text y="233" fill="#929297" font-size="16">a second lens returns it to sight</text>
+    </g>
+  </g>
+</svg>
