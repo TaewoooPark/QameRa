@@ -38,3 +38,14 @@ Actual camera capture on a physical phone, optical scanning from a second phone,
 Node 코덱 테스트 **6개**, 브라우저 기능 검증 **14개**, 테스트용 카메라 스트림을 통한 검증 **11개**를 통과했다. 브라우저 기능 검증은 기본 URL 한도를 1,150자로 줄이고 QR 모듈을 정수 픽셀로 그리도록 수정한 뒤 다시 통과했다. 실제 390 × 844px 화면 캡처에 나타난 QR을 ZXing으로 읽어 **1,069자의 공개 HTTPS 이미지 URL**이 정확히 복원되는 것도 확인했다. 테스트용 카메라 스트림 검증은 마지막 헤더 제거와 QR 렌더링 수정 전에 수행했으며, 이후 화면 변경은 브라우저·캡처 검증으로 확인했다.
 
 README 이미지는 앱에서 생성한 식물 장면으로 실행 화면을 캡처한 것이다. 실제 휴대폰 카메라 촬영, 두 대의 휴대폰을 이용한 광학 스캔, 하드웨어 초점·조명 동작까지 검증한 것은 아니다.
+
+
+## iPhone Chrome startup correction
+
+The follow-up change removes intro-timer permission requests. `getUserMedia` is invoked directly from the Open camera tap, with a 15-second request deadline and cleanup of streams arriving after timeout or navigation. Video startup uses bounded readiness checks rather than waiting indefinitely for `loadeddata`. Reveal navigates in the same tab.
+
+Thirteen additional Node regression tests cover synchronous permission requests, timeout/cancellation, late stream disposal, frame readiness without `loadeddata`, playback errors, and listener cleanup; all 19 Node tests pass.
+
+A Chromium browser run with an iPhone Chrome user-agent and controlled camera stream passed 12 regression checks: no request before tapping, active user gesture at the request, pending-request timeout, retry availability, iPhone-specific help, late-stream cleanup, successful second attempt, image navigation without a popup, return navigation, and immediate denial recovery. This is simulation of the failure paths, **not a test on a physical iPhone or the iOS WebKit engine**.
+
+Google documents that disabling Chrome's camera permission at the iPhone level can suppress the site prompt entirely. The site cannot override that setting. [Chrome iPhone camera permissions](https://support.google.com/chrome/answer/2693767?co=GENIE.Platform%3DiOS&hl=en)

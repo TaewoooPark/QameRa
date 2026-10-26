@@ -66,3 +66,7 @@
 @media(max-height:740px) and (max-width:799px){.camera-app .viewfinder{width:min(100%,calc(100svh - 264px))}}
 
 .camera-app .qr-wrap{display:block}.camera-app .qr-wrap canvas{position:absolute}
+
+/* Keep the stream element in the viewport for WebKit playback, behind chrome. */
+.capture-source{left:0;top:0;opacity:.01;z-index:-1}
+.permission-help{font-size:12px;text-decoration:underline;text-underline-offset:3px;color:#b9b9b1;margin-top:16px;min-height:28px;display:flex;align-items:center}

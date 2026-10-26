@@ -20,7 +20,7 @@ The QR is the photograph in another alphabet. A second phone reads it, opens a l
 
 ## Use it
 
-1. Open **[QameRa](https://taewooopark.github.io/QameRa/)** in a mobile browser. After the two-second introduction, allow camera access.
+1. Open **[QameRa](https://taewooopark.github.io/QameRa/)** in a mobile browser. After the two-second introduction, tap **Open camera**, then allow camera access.
 2. Point the camera. The **1:1 viewfinder shows a live QR**, with no ordinary image preview.
 3. Adjust the controls. Those changes become part of the encoded image.
 4. Tap the shutter to **freeze the QR**. Aim a second phone's camera at it and open the recognized link.
@@ -73,6 +73,12 @@ More image detail means a longer link and a denser QR. QameRa reduces image dime
 - The reconstruction is a low-resolution still image. It does not recover the camera's original resolution.
 - Camera access requires HTTPS, or localhost during development. In-app browsers may restrict access; try Safari or Chrome directly.
 - Browser verification and QR decoding tests do not establish compatibility with every physical phone. A physical two-phone scan has not yet been verified for this initial release. See the [verification notes](docs/verification.md).
+
+### iPhone Chrome: no permission prompt
+
+Tap **Open camera** after the introduction. Camera access starts directly from that tap; the app no longer starts a permission request from the intro timer. An unanswered request returns to an actionable button after 15 seconds, and camera playback has a separate bounded wait. The eye button opens the image in the same tab, so it does not depend on popup permission.
+
+If Chrome’s camera access is disabled at the iPhone level, the site may receive no permission prompt. Allow Camera for Chrome in iPhone **Settings → Apps → Chrome**, check this site’s camera permission in Chrome, and return to tap **Open camera** again. A webpage cannot turn that permission on or force a Settings redirect. The app shows this guidance only when access fails or times out. [Google’s iPhone Chrome instructions](https://support.google.com/chrome/answer/2693767?co=GENIE.Platform%3DiOS&hl=en)
 
 ### Where the picture goes
 

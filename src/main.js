@@ -1,5 +1,6 @@
 import './style.css';
 import {icon} from './icons.js';
+import {requestCamera, playCamera, permissionHelp} from './camera.js';
 import {encodeFrame, parseFrameHash, renderQr} from './frame-codec.js';
 
 const app = document.querySelector('#app');
@@ -7,7 +8,7 @@ const $ = (s) => document.querySelector(s);
 const baseUrl = new URL('./', location.href).href.split('#')[0].split('?')[0];
 const frameBaseUrl = import.meta.env.VITE_FRAME_BASE_URL || (['localhost','127.0.0.1'].includes(location.hostname) ? 'https://taewooopark.github.io/QameRa/' : baseUrl);
 const demo = new URLSearchParams(location.search).has('demo');
-const state = {isDemo:false, stream:null, track:null, caps:{}, facing:'environment', frozen:false, starting:false, running:false, frame:null, count:0, exposure:0, zoom:1, filter:'original', fps:1, budget:1150, timer:0, token:0, torch:false};
+const state = {isDemo:false, stream:null, track:null, caps:{}, facing:'environment', frozen:false, starting:false, cameraRequest:null, running:false, frame:null, count:0, exposure:0, zoom:1, filter:'original', fps:1, budget:1150, timer:0, token:0, torch:false};
 const video = document.createElement('video');
 video.muted = true; video.autoplay = true; video.playsInline = true;
 video.setAttribute('playsinline',''); video.setAttribute('muted','');
@@ -28,7 +29,7 @@ function cameraMarkup(){
   <section class="viewfinder" aria-label="Live QR viewfinder">
    <div class="frame-label"><button class="text-button" id="speed" aria-label="Change QR refresh speed">1 fps</button><button class="text-button reveal-button" id="open-frame" aria-label="Reveal current image" disabled>${icon('eye')}</button></div>
    <div class="qr-wrap"><canvas id="qr" aria-label="QR code containing the current camera image"></canvas><span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
-    <div class="permission-card" id="permission-card"><div class="permission-symbol">${icon('camera')}</div><p id="permission-text">Allow camera access to begin.</p><button class="primary-button" id="start">Open camera ${icon('arrow')}</button></div>
+    <div class="permission-card" id="permission-card"><div class="permission-symbol">${icon('camera')}</div><p id="permission-text">Tap to allow your camera.</p><button class="primary-button" id="start">Open camera ${icon('arrow')}</button><a id="camera-help" class="permission-help" href="https://support.google.com/chrome/answer/2693767" target="_blank" rel="noreferrer" hidden>Camera settings</a></div>
    </div>
    <div class="frame-data" hidden><span id="frame-data"></span><span id="frame-number"></span></div>
   </section>
@@ -45,8 +46,8 @@ function cameraMarkup(){
   <div class="home-indicator" aria-hidden="true"></div>
  </main><div class="toast" id="toast" role="status"></div>`;
  document.body.append(video);
- paintQr(frameBaseUrl); if($('#phone-qr'))renderQr($('#phone-qr'),frameBaseUrl);
  bindCamera();
+ try {paintQr(frameBaseUrl); if($('#phone-qr'))renderQr($('#phone-qr'),frameBaseUrl);} catch { /* A transient layout must not disable camera access. */ }
 }
 
 function paintQr(url){
@@ -65,7 +66,7 @@ function bindCamera(){
  $('#start').onclick=()=>startCamera();
  $('#shutter').onclick=toggleFreeze;
  $('#save').onclick=()=>{if(!state.frame)return; if(!state.frozen)toggleFreeze();saveData($('#qr').toDataURL('image/png'),`qamera-${Date.now()}.png`);toast('The code is yours. Scan to see.');};
- $('#open-frame').onclick=()=>{if(!state.frame)return;if(!state.frozen)toggleFreeze();window.open(state.frame.url,'_blank','noopener,noreferrer');};
+ $('#open-frame').onclick=()=>{if(!state.frame)return;if(!state.frozen)toggleFreeze();location.assign(state.frame.url);};
  $('#flip').onclick=()=>{if(state.starting)return;state.facing=state.facing==='environment'?'user':'environment';startCamera();};
  $('#exposure').oninput=e=>{state.exposure=Number(e.target.value);$('#exposure-value').textContent=`${state.exposure>0?'+':''}${state.exposure.toFixed(1)} ev`;adjustChanged();};
  document.querySelectorAll('[data-zoom]').forEach(b=>b.onclick=()=>{state.zoom=Number(b.dataset.zoom);document.querySelectorAll('[data-zoom]').forEach(x=>{x.classList.toggle('selected',x===b);x.setAttribute('aria-pressed',x===b);});adjustChanged();});
@@ -81,23 +82,49 @@ function bindCamera(){
 function adjustChanged(){if(state.frozen)toast('Held frame unchanged. Tap the shutter to go live.');}
 function setReady(isDemo=false){$('#permission-card').hidden=true;state.running=true;state.frozen=false;state.frame=null;$('#shutter').disabled=true;$('#save').disabled=true;$('#open-frame').disabled=true;$('#shutter').classList.remove('held');$('#shutter').setAttribute('aria-label','Freeze current QR frame');$('#caption').textContent=isDemo?'Sample light. Real code.':'The image is in the code.';$('#shutter-hint').textContent='TAP TO HOLD THE MOMENT';status(isDemo?'Demo':'Live','live');}
 async function startCamera(){
- if(state.starting)return;state.starting=true;state.running=false;clearTimeout(state.timer);const token=++state.token;stopTracks();state.frame=null;$('#shutter').disabled=true;$('#save').disabled=true;$('#open-frame').disabled=true;status('Connecting');$('#start').disabled=true;$('#start').textContent='Opening…';
+ if(state.starting)return;
+ state.starting=true;state.running=false;clearTimeout(state.timer);
+ const token=++state.token;stopTracks();state.frame=null;
+ $('#shutter').disabled=true;$('#save').disabled=true;$('#open-frame').disabled=true;
+ $('#permission-card').hidden=false;$('#camera-help').hidden=true;
+ $('#permission-text').textContent='Allow Camera when your browser asks.';
+ status('Connecting');$('#start').disabled=true;$('#start').textContent='Opening…';
  try{
-  if(!navigator.mediaDevices?.getUserMedia)throw new Error('Camera access needs HTTPS and a supported browser.');
-  const stream=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:{ideal:state.facing},width:{ideal:640},height:{ideal:640},frameRate:{ideal:15,max:24}}});
+  if(!window.isSecureContext)throw Object.assign(new Error('Open QameRa over HTTPS to use the camera.'),{name:'CameraContextError'});
+  if(!navigator.mediaDevices?.getUserMedia)throw Object.assign(new Error('Open this link directly in Chrome or Safari to use the camera.'),{name:'CameraContextError'});
+  state.cameraRequest=requestCamera(
+   navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices),
+   {audio:false,video:{facingMode:{ideal:state.facing},width:{ideal:640},height:{ideal:640}}}
+  );
+  const stream=await state.cameraRequest.promise;
   if(token!==state.token){stream.getTracks().forEach(t=>t.stop());return;}
-  state.stream=stream;state.track=stream.getVideoTracks()[0];video.srcObject=stream;await video.play();
+  state.cameraRequest=null;state.stream=stream;state.track=stream.getVideoTracks()[0];
+  if(!state.track)throw new Error('The camera did not provide a video track.');
+  video.srcObject=stream;
+  await playCamera(video,{isCurrent:()=>token===state.token});
   if(token!==state.token)return;
-  if(!video.videoWidth)await new Promise(resolve=>video.addEventListener('loadeddata',resolve,{once:true}));
-  if(token!==state.token)return;
-  state.isDemo=false;state.caps=state.track.getCapabilities?.()||{};state.torch=false;$('#torch').classList.remove('selected');$('#torch').disabled=!state.caps.torch;
+  state.isDemo=false;state.caps={};
+  try{state.caps=state.track.getCapabilities?.()||{};}catch{/* Camera playback does not require capability inspection. */}
+  state.torch=false;$('#torch').classList.remove('selected');$('#torch').disabled=!state.caps.torch;
   const focus=state.caps.focusDistance;const manual=focus&&state.caps.focusMode?.includes('manual');$('#focus').disabled=!manual;
   $('#focus-label').textContent=manual?'Auto':'Autofocus';$('#focus-value').textContent='Auto';
   if(manual){$('#focus').min=focus.min;$('#focus').max=focus.max;$('#focus').step=focus.step||0.01;$('#focus').value=state.track.getSettings?.().focusDistance??focus.min;}
-  state.track.onended=()=>{if(state.running&&!state.isDemo){state.running=false;++state.token;clearTimeout(state.timer);status('Paused');$('#permission-card').hidden=false;$('#permission-text').textContent='Camera disconnected. Open it again to continue.';}};
+  state.track.onended=()=>{if(state.running&&!state.isDemo){state.running=false;++state.token;clearTimeout(state.timer);status('Paused');$('#permission-card').hidden=false;$('#permission-text').textContent='Camera disconnected. Tap to reconnect.';}};
   setReady();tick(token);
- }catch(error){if(token!==state.token)return;status('No camera');$('#permission-card').hidden=false;$('#permission-text').textContent=error.name==='NotAllowedError'?'Camera access is off. Allow it in browser settings, then try again.':error.name==='NotFoundError'?'No camera found. Try this link on your phone.':error.name==='NotReadableError'?'Camera is busy. Close other camera apps and retry.':error.message;stopTracks();}
- finally{if(token===state.token){state.starting=false;$('#start').disabled=false;$('#start').innerHTML=`Open camera ${icon('arrow')}`;}}
+ }catch(error){
+  if(token!==state.token)return;
+  status('No camera');$('#permission-card').hidden=false;
+  const help=permissionHelp(navigator.userAgent,navigator.maxTouchPoints);
+  const permissionIssue=['NotAllowedError','SecurityError','CameraPermissionTimeout'].includes(error.name);
+  $('#permission-text').textContent=permissionIssue?help.message:
+   error.name==='NotFoundError'?'No camera found. Open this link on your phone.':
+   error.name==='NotReadableError'?'Camera is busy. Close other camera apps and try again.':
+   ['CameraPlaybackTimeout','CameraPlaybackError'].includes(error.name)?'Camera did not start. Tap to try again.':error.message;
+  $('#camera-help').href=help.url;$('#camera-help').hidden=!permissionIssue;
+  stopTracks();
+ }finally{
+  if(token===state.token){state.cameraRequest=null;state.starting=false;$('#start').disabled=false;$('#start').innerHTML=`Open camera ${icon('arrow')}`;}
+ }
 }
 function startDemo(){++state.token;stopTracks();clearTimeout(state.timer);state.isDemo=true;state.starting=false;state.caps={};$('#torch').disabled=true;$('#focus').disabled=true;setReady(true);tick(state.token);}
 function drawSample(time){
@@ -129,8 +156,8 @@ function renderViewer(){
  $('#share-photo').onclick=async()=>{try{if(navigator.share)await navigator.share({title:'QameRa — a moment, decoded.',url:location.href});else{await navigator.clipboard.writeText(location.href);toast('Image link copied.');}}catch(e){if(e.name!=='AbortError')toast('Use your browser share button to share this link.');}};
 }
 
-if(location.hash){renderViewer();}else{app.innerHTML='<div class="intro"><span class="wordmark">Qame<span>R</span>a</span></div>';setTimeout(()=>{cameraMarkup();if(demo)startDemo();else if(matchMedia('(pointer: coarse)').matches||innerWidth<768)startCamera();},2000);}
-window.addEventListener('pagehide',()=>{state.running=false;++state.token;clearTimeout(state.timer);stopTracks();});
-window.addEventListener('pageshow',e=>{if(e.persisted&&!location.hash&&$('#permission-card')){state.starting=false;$('#permission-card').hidden=false;status('Ready');}});
+if(location.hash){renderViewer();}else{app.innerHTML='<div class="intro"><span class="wordmark">Qame<span>R</span>a</span></div>';setTimeout(()=>{cameraMarkup();if(demo)startDemo();},2000);}
+window.addEventListener('pagehide',()=>{state.running=false;++state.token;state.cameraRequest?.cancel();state.cameraRequest=null;state.starting=false;clearTimeout(state.timer);stopTracks();});
+window.addEventListener('pageshow',e=>{if(e.persisted&&!location.hash&&$('#permission-card')){state.starting=false;$('#permission-card').hidden=false;$('#start').disabled=false;$('#start').innerHTML=`Open camera ${icon('arrow')}`;$('#permission-text').textContent='Tap to allow your camera.';status('Ready');}});
 window.addEventListener('hashchange',()=>location.reload());
 document.addEventListener('visibilitychange',()=>{clearTimeout(state.timer);if(state.running){++state.token;if(!document.hidden&&!state.frozen)tick(state.token);}});
