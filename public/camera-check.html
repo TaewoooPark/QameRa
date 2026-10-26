@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#090909">
+<meta name="referrer" content="no-referrer">
+<title>QameRa · 카메라 진단</title>
+<style>
+:root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#f5f5ef;background:#090909;color-scheme:dark}*{box-sizing:border-box}body{margin:0;padding:max(24px,env(safe-area-inset-top)) 20px max(24px,env(safe-area-inset-bottom));max-width:520px;margin-inline:auto}h1{font-size:25px;font-weight:600;letter-spacing:-.8px;margin:0 0 12px}p{color:#aaa;font-size:14px;line-height:1.6;margin:0 0 20px}.actions{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px}button{font:inherit;border:0;border-radius:25px;min-height:48px;padding:12px 18px;cursor:pointer;touch-action:manipulation;background:#252525;color:#eee}button.primary{background:#f6ce64;color:#111;font-weight:600}button:disabled{opacity:.4;cursor:default}button:focus-visible,textarea:focus-visible{outline:2px solid #f6ce64;outline-offset:3px}video{display:block;width:100%;aspect-ratio:1;object-fit:contain;background:#181818;border-radius:8px;margin:16px 0}#summary{white-space:pre-wrap;overflow-wrap:anywhere;font-size:14px;line-height:1.55;min-height:44px;color:#eee}textarea{width:100%;height:240px;resize:vertical;border:1px solid #343434;background:#141414;color:#c8c8c0;border-radius:8px;padding:12px;font:12px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;display:block;margin:12px 0}small{display:block;font-size:11px;line-height:1.6;color:#777;margin-top:18px}#copy-status{font-size:12px;min-height:20px;color:#bdbdb4;margin:8px 0 0}
+</style>
+</head>
+<body>
+<h1>카메라 진단</h1>
+<p>기본 테스트를 한 번 누른 뒤 결과를 이 채팅에 보내 주세요.</p>
+<div class="actions">
+<button id="basic" class="primary">기본 카메라 테스트</button>
+<button id="rear">후면 카메라 테스트</button>
+<button id="stop" disabled>중지</button>
+</div>
+<div id="summary" role="status">아직 카메라를 요청하지 않았습니다.</div>
+<video id="preview" muted autoplay playsinline aria-label="진단용 카메라 영상"></video>
+<textarea id="report" readonly aria-label="카메라 진단 결과" spellcheck="false"></textarea>
+<button id="copy">결과 복사</button>
+<p id="copy-status" role="status"></p>
+<small>camera-check-1 · 영상·사진·기기 ID는 결과에 포함하지 않습니다.<br>결과는 이 화면에만 표시되며 서버로 전송하지 않습니다.</small>
+<script>
+'use strict';
+const VERSION = 'camera-check-1';
+const $ = id => document.getElementById(id);
+const video = $('preview');
+video.muted = true;
+video.playsInline = true;
+let generation = 0;
+let activeStream = null;
+let cancelPending = null;
+let report = null;
+
+function namedError(name, message) { return Object.assign(new Error(message), { name }); }
+function release(stream) { stream?.getTracks().forEach(track => track.stop()); }
+function emit() { $('report').value = JSON.stringify(report, null, 2); }
+function rawError(error) {
+  const result = { name: String(error?.name || 'Error'), message: typeof error?.message === 'string' ? error.message : String(error) };
+  if (typeof error?.constraint === 'string') result.constraint = error.constraint;
+  return result;
+}
+function contextDetails() {
+  let topLevel = null;
+  try { topLevel = window.top === window.self; } catch {}
+  let cameraPolicy = 'unsupported';
+  try {
+    const policy = document.permissionsPolicy || document.featurePolicy;
+    if (typeof policy?.allowsFeature === 'function') cameraPolicy = policy.allowsFeature('camera');
+  } catch (error) { cameraPolicy = error.name; }
+  const ua = navigator.userAgent;
+  return {
+    url: location.origin + location.pathname,
+    userAgent: ua,
+    iosBrowser: /CriOS\//.test(ua) ? 'Chrome iOS' : /FxiOS\//.test(ua) ? 'Firefox iOS' : /EdgiOS\//.test(ua) ? 'Edge iOS' : /iPhone|iPad|iPod/.test(ua) ? 'iOS browser' : 'not identified as iOS',
+    secureContext: window.isSecureContext,
+    visibility: document.visibilityState,
+    topLevel,
+    cameraPolicy,
+    hasMediaDevices: !!navigator.mediaDevices,
+    hasGetUserMedia: typeof navigator.mediaDevices?.getUserMedia === 'function',
+  };
+}
+function queryPermission(token, result) {
+  if (typeof navigator.permissions?.query !== 'function') {
+    result.cameraPermission = 'unsupported'; emit(); return;
+  }
+  // A permission-state read never delays or precedes the native tap request.
+  Promise.resolve().then(() => navigator.permissions.query({name:'camera'})).then(permission => {
+    if (token !== generation || report !== result) return;
+    result.cameraPermission = permission.state; emit();
+  }).catch(error => {
+    if (token !== generation || report !== result) return;
+    result.cameraPermission = 'unsupported: ' + error.name; emit();
+  });
+}
+function boundRequest(nativePromise) {
+  let settled = false;
+  let rejectPending;
+  let timer;
+  const promise = new Promise((resolve, reject) => {
+    rejectPending = reject;
+    timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(namedError('CameraRequestTimeout', 'getUserMedia did not settle within 15000 ms.'));
+    }, 15000);
+    Promise.resolve(nativePromise).then(stream => {
+      if (settled) { release(stream); return; }
+      settled = true; clearTimeout(timer); resolve(stream);
+    }, error => {
+      if (settled) return;
+      settled = true; clearTimeout(timer); reject(error);
+    });
+  });
+  return { promise, cancel() {
+    if (settled) return;
+    settled = true; clearTimeout(timer);
+    rejectPending(namedError('AbortError', 'Diagnostic cancelled.'));
+  }};
+}
+function playPreview(token) {
+  let cancel;
+  const promise = new Promise((resolve, reject) => {
+    let done = false;
+    let timer, poll;
+    const events = ['loadedmetadata','loadeddata','canplay','playing','resize'];
+    const finish = error => {
+      if (done) return;
+      done = true; clearTimeout(timer); clearInterval(poll);
+      events.forEach(event => video.removeEventListener(event, check));
+      video.removeEventListener('error', failed);
+      error ? reject(error) : resolve();
+    };
+    const check = () => {
+      if (token !== generation) return finish(namedError('AbortError', 'Diagnostic cancelled.'));
+      if (video.readyState >= 2 && video.videoWidth && video.videoHeight && !video.paused) finish();
+    };
+    const failed = () => finish(namedError('MediaElementError', video.error?.message || 'The video element reported an error.'));
+    cancel = () => finish(namedError('AbortError', 'Diagnostic cancelled.'));
+    events.forEach(event => video.addEventListener(event, check));
+    video.addEventListener('error', failed);
+    poll = setInterval(check, 100);
+    timer = setTimeout(() => finish(namedError('CameraPlaybackTimeout', 'Video did not become ready within 8000 ms.')), 8000);
+    // Preserve the browser's own play() error name and message.
+    try { Promise.resolve(video.play()).then(check, finish); } catch (error) { finish(error); }
+    check();
+  });
+  return { promise, cancel };
+}
+function clearCamera() {
+  cancelPending?.(); cancelPending = null;
+  release(activeStream); activeStream = null;
+  video.srcObject = null;
+}
+function buttons(busy, live = false) {
+  $('basic').disabled = busy; $('rear').disabled = busy;
+  $('stop').disabled = !busy && !live;
+}
+function videoDetails() {
+  return { width: video.videoWidth, height: video.videoHeight, readyState: video.readyState, paused: video.paused };
+}
+async function run(mode) {
+  const token = ++generation;
+  clearCamera(); buttons(true); $('copy-status').textContent = '';
+  const constraints = mode === 'basic'
+    ? {audio:false,video:true}
+    : {audio:false,video:{facingMode:{ideal:'environment'}}};
+  const result = report = {
+    version: VERSION,
+    capturedAt: new Date().toISOString(),
+    mode,
+    context: contextDetails(),
+    constraints,
+    userActivationAtRequest: navigator.userActivation?.isActive ?? 'unsupported',
+    cameraPermission: 'not queried yet',
+    stage: 'request',
+  };
+  $('summary').textContent = '브라우저의 카메라 권한 응답을 기다립니다.';
+  emit();
+  const started = performance.now();
+  let playbackStarted;
+  try {
+    if (!navigator.mediaDevices?.getUserMedia) throw namedError('CameraApiUnavailable', 'navigator.mediaDevices.getUserMedia is unavailable.');
+    // Native request is made directly inside the click task, before any await.
+    const nativePromise = navigator.mediaDevices.getUserMedia(constraints);
+    const request = boundRequest(nativePromise);
+    cancelPending = request.cancel;
+    queryPermission(token, result);
+    const stream = await request.promise;
+    if (token !== generation) { release(stream); return; }
+    cancelPending = null; activeStream = stream;
+    result.requestElapsedMs = Math.round(performance.now() - started);
+    result.stage = 'playback';
+    $('summary').textContent = '카메라 스트림을 받았습니다. 영상을 확인합니다.';
+    emit();
+    video.srcObject = stream;
+    playbackStarted = performance.now();
+    const playback = playPreview(token);
+    cancelPending = playback.cancel;
+    await playback.promise;
+    if (token !== generation) return;
+    cancelPending = null;
+    result.playbackElapsedMs = Math.round(performance.now() - playbackStarted);
+    result.stage = 'ready'; result.video = videoDetails();
+    $('summary').textContent = '카메라 권한과 영상 재생이 모두 성공했습니다.';
+    buttons(false, true); emit();
+    queryPermission(token, result);
+  } catch (error) {
+    if (token !== generation) return;
+    result.error = rawError(error);
+    if (result.stage === 'request') result.requestElapsedMs = Math.round(performance.now() - started);
+    else { result.playbackElapsedMs = Math.round(performance.now() - playbackStarted); result.video = videoDetails(); }
+    const label = result.stage === 'request' ? '카메라 요청 단계' : '영상 재생 단계';
+    $('summary').textContent = label + '\n' + result.error.name + ': ' + result.error.message;
+    clearCamera(); buttons(false); emit(); queryPermission(token, result);
+  }
+}
+$('basic').addEventListener('click', () => run('basic'));
+$('rear').addEventListener('click', () => run('rear'));
+$('stop').addEventListener('click', () => {
+  ++generation; clearCamera(); buttons(false);
+  if (report) { report.stage = 'stopped'; emit(); }
+  $('summary').textContent = '카메라를 중지했습니다.';
+});
+$('copy').addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText($('report').value);
+    $('copy-status').textContent = '복사했습니다. 이 채팅에 붙여 넣어 주세요.';
+  } catch {
+    $('report').focus(); $('report').select(); $('report').setSelectionRange(0, $('report').value.length);
+    $('copy-status').textContent = '결과를 선택했습니다. 복사해서 이 채팅에 붙여 넣어 주세요.';
+  }
+});
+window.addEventListener('pagehide', () => {
+  ++generation; clearCamera(); buttons(false);
+  if (report && report.stage !== 'idle' && !report.error) { report.stoppedAtStage = report.stage; report.stage = 'stopped'; emit(); }
+  if (!report?.error) $('summary').textContent = '카메라를 중지했습니다. 다시 테스트할 수 있습니다.';
+});
+report = { version: VERSION, stage: 'idle', context: contextDetails() }; emit();
+</script>
+</body>
+</html>

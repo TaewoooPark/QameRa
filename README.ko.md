@@ -82,7 +82,9 @@ QR은 다른 문자로 쓰인 사진이다. 두 번째 휴대폰이 코드를 �
 
 인트로 후 **Open camera**를 누르면 그 탭 동작에서 권한 요청을 바로 시작한다. 자동 타이머로 요청하지 않으며, 응답이 없으면 15초 후 다시 누를 수 있게 복구한다. 영상 재생 준비도 무기한 기다리지 않는다. 눈 모양 버튼은 팝업 없이 같은 탭에서 이미지를 연다.
 
-iPhone에서 Chrome의 카메라 접근이 꺼져 있으면 사이트의 권한 팝업도 나타나지 않을 수 있다. **설정 → 앱 → Chrome → 카메라**와 Chrome의 이 사이트 카메라 권한을 허용한 뒤 돌아와 **Open camera**를 다시 누른다. 웹페이지가 이 권한을 대신 켜거나 설정 앱 이동을 강제로 실행할 수는 없다. 앱은 요청 실패나 시간 초과 때만 이 안내를 표시한다. [Google 공식 안내](https://support.google.com/chrome/answer/2693767?co=GENIE.Platform%3DiOS&hl=ko)
+카메라 시작은 [noisample의 즉시 미디어 요청 구조](https://github.com/TaewoooPark/noisample/blob/39c6b92a6788a4d54f77b58a4bc09fdb81b93a97/dist/engine.js)를 따른다. 입력 핸들러 안에서 비동기 작업을 기다리지 않고 네이티브 API를 호출한 뒤, 허용된 스트림을 설정한다. 터치는 손을 뗄 때, 마우스는 누를 때 시작하며 키보드도 지원한다. 한 번의 입력으로 권한을 중복 요청하지 않는다. 최초 요청은 카메라 방향만 선호 조건으로 전달하고 해상도는 영상이 시작된 뒤 적용한다. 마이크 권한은 요청하지 않는다.
+
+iPhone에서 Chrome의 카메라 접근이 꺼져 있으면 사이트의 권한 팝업도 나타나지 않을 수 있다. **설정 → 앱 → Chrome → 카메라**와 Chrome의 이 사이트 카메라 권한을 허용한 뒤 돌아와 **Open camera**를 다시 누른다. 웹페이지가 이 권한을 대신 켜거나 설정 앱 이동을 강제로 실행할 수는 없다. 앱은 설정 문제라고 단정하지 않고 실제 오류 이름과 실패 단계를 표시한다. 별도 [카메라 진단](https://taewooopark.github.io/QameRa/camera-check.html)에서는 QR 기능 없이 기본 카메라 요청만 테스트하고 결과를 복사할 수 있다. 영상·사진·진단 결과는 서버로 전송하지 않는다. [Google 공식 안내](https://support.google.com/chrome/answer/2693767?co=GENIE.Platform%3DiOS&hl=ko)
 
 ## 로컬 실행
 

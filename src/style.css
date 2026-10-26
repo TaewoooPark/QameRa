@@ -70,3 +70,8 @@
 /* Keep the stream element in the viewport for WebKit playback, behind chrome. */
 .capture-source{left:0;top:0;opacity:.01;z-index:-1}
 .permission-help{font-size:12px;text-decoration:underline;text-underline-offset:3px;color:#b9b9b1;margin-top:16px;min-height:28px;display:flex;align-items:center}
+
+#camera-error{margin-top:15px;max-width:100%;color:#aaa;font-size:11px}
+#camera-error-code{display:block;overflow-wrap:anywhere;font:11px/1.5 -apple-system,BlinkMacSystemFont,sans-serif}
+#copy-error{margin-top:8px;text-decoration:underline;text-underline-offset:3px;min-height:32px}
+#error-details{display:block;background:#171715;color:#ddd;border:1px solid #444;width:100%;height:95px;margin-top:8px;font-size:10px}
