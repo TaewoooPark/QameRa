@@ -70,3 +70,21 @@ QameRa now uses the same immediate, guarded capture-start structure, with mouse 
 Noisample's AudioContext setup is for audio playback; it was not copied into this camera application. WebKit checks camera and microphone permission independently, so working microphone capture does not establish the camera authorization state. This change is awaiting confirmation on the affected physical iPhone. [Noisample entry point](https://github.com/TaewoooPark/noisample/blob/39c6b92a6788a4d54f77b58a4bc09fdb81b93a97/dist/app.js), [Noisample capture](https://github.com/TaewoooPark/noisample/blob/39c6b92a6788a4d54f77b58a4bc09fdb81b93a97/dist/engine.js), [WebKit user activation](https://webkit.org/blog/13862/the-user-activation-api/), [WebKit camera and microphone checks](https://github.com/WebKit/WebKit/blob/main/Source/WebCore/Modules/mediastream/MediaDevices.cpp)
 
 Validation: all 29 Node tests pass. A focused Chromium run with touch and mouse input passed 16 checks, including trusted transient activation at the native call, one request per gesture after an immediate rejection, keyboard retry, optional sizing failure recovery, QR capture, and image reveal. The diagnostic page separately passed 11 browser checks for exact native error preservation, minimal constraints, gesture timing, retry, stream playback, and stop. These use controlled camera streams and errors, not physical iPhone hardware. The production build and whitespace checks pass.
+
+## Image quality update
+
+The user confirmed camera operation after enabling Chrome's camera access in iPhone settings. This update leaves the working camera request helpers and interface styling unchanged; it replaces frame compression and QR data packing.
+
+Frames use a locally bundled WebP encoder in a Web Worker, with URL-safe base43 packed into QR alphanumeric segments. Old `q=1` JPEG links remain supported; new images use `q=2`. Standard and Fine have URL limits of 2,960 and 4,240 characters respectively, fitting QR versions up to 33 and 40 at the published viewer URL. Encoding starts at 192/256 pixels, keeps a quality floor of 32, and reduces dimensions before searching the remaining quality range. A 384-pixel processing canvas preserves detail through cropping and filters. Actual output sizes depend on the scene. Encoder failure falls back to JPEG.
+
+Desktop WebKit 26.6 benchmark, using the same 384-pixel square reference and display size:
+
+| Scene | Previous standard | New standard | New Fine | Standard luminance block SSIM, before → after |
+| --- | --- | --- | --- | --- |
+| Landscape | 32 × 32 | 128 × 128 | 160 × 160 | 0.479 → 0.656 |
+| Natural detail | 32 × 32 | 96 × 96 | 112 × 112 | 0.284 → 0.421 |
+| Original text/edges | 32 × 32 | 128 × 128 | 144 × 144 | 0.474 → 0.746 |
+
+The photographic references are Google WebP gallery samples [1](https://www.gstatic.com/webp/gallery/1.png) and [4](https://www.gstatic.com/webp/gallery/4.png), used only in local verification. The committed before/after image uses the original procedural text/edges fixture. Chromium also improved on all three scenes. New encoding took approximately 17–56 ms on this desktop; this is not an iPhone timing claim.
+
+All 37 Node tests and the existing 16 browser capture-flow checks pass. Tests cover backward compatibility, strict bounded WebP parsing, compact transport, and independent jsQR reconstruction at 1,122 physical pixels. Smaller module-aligned rasters with mild blur also pass. Arbitrary fractional downsampling was unreliable, especially for Fine; these tests do not establish physical two-phone scan reliability. Both Chromium and desktop WebKit successfully encode and display the new WebP frames. The production bundle includes local worker and baseline/SIMD WASM assets.

@@ -1,9 +1,12 @@
 import QRCode from 'qrcode';
+import { encodeWebp } from './webp-encoder.js';
+import { buildWebpFrameUrl, parseWebpFrameHash, webpQrSegments, MAX_WEBP_BYTES } from './webp-payload.js';
 
-// A short URL is easier to read across a room than a version-40 QR. These are
-// character budgets for the complete URL, including its origin and pathname.
-export const DEFAULT_URL_BUDGET = 1150;
-export const MAX_URL_BUDGET = 2300;
+// WebP uses compact alphanumeric QR segments: character count is no longer
+// byte-mode capacity. These budgets fit version 33 / 40 at the public URL.
+export const DEFAULT_URL_BUDGET = 2960;
+export const FINE_URL_BUDGET = 4240;
+export const MAX_URL_BUDGET = FINE_URL_BUDGET;
 export const MAX_JPEG_BYTES = 2200;
 export const MAX_FRAME_EDGE = 256;
 
@@ -107,6 +110,7 @@ export function buildFrameUrl(baseUrl, value) {
 /** An empty hash means camera mode; an invalid nonempty hash is an error. */
 export function parseFrameHash(hash) {
   if (!hash || hash === '#') return null;
+  if (typeof hash === 'string' && /^#?q=2\./.test(hash)) return parseWebpFrameHash(hash);
   if (typeof hash !== 'string' || hash.length > Math.ceil(MAX_JPEG_BYTES * 4 / 3) + 10) {
     throw new Error('This frame link is too large.');
   }
@@ -120,7 +124,7 @@ export function parseFrameHash(hash) {
   // Reject noncanonical trailing bits as well as malformed alphabets.
   if (bytesToBase64(bytes).replace(/=+$/, '') !== base64) throw new Error('This frame link is damaged.');
   const dimensions = inspectJpeg(bytes);
-  return { ...dimensions, dataUrl: `data:image/jpeg;base64,${bytesToBase64(bytes)}` };
+  return { ...dimensions, mimeType: 'image/jpeg', extension: 'jpg', dataUrl: `data:image/jpeg;base64,${bytesToBase64(bytes)}` };
 }
 
 function canvasBlob(canvas, quality) {
@@ -130,8 +134,8 @@ function canvasBlob(canvas, quality) {
 }
 
 /** Encode an already-filtered canvas. Crops its center to a 1:1 frame. */
-export async function encodeFrame(source, baseUrl, options = {}) {
-  const budget = Math.min(MAX_URL_BUDGET, Math.max(900, options.maxUrlLength ?? DEFAULT_URL_BUDGET));
+async function encodeJpegFrame(source, baseUrl, options = {}) {
+  const budget = Math.min(2300, Math.max(900, options.maxUrlLength ?? DEFAULT_URL_BUDGET));
   const initialSize = Math.round(Math.min(MAX_FRAME_EDGE, Math.max(24, options.size ?? 96)));
   const initialQuality = Math.min(0.9, Math.max(0.12, options.quality ?? 0.42));
   if (!source.width || !source.height) throw new Error('The camera frame is not ready.');
@@ -155,7 +159,7 @@ export async function encodeFrame(source, baseUrl, options = {}) {
       if (bytes.length > MAX_JPEG_BYTES) continue;
       const url = buildFrameUrl(baseUrl, bytes);
       if (url.length <= budget) {
-        return { url, dataUrl: `data:image/jpeg;base64,${bytesToBase64(bytes)}`,
+        return { url, dataUrl: `data:image/jpeg;base64,${bytesToBase64(bytes)}`, mimeType: 'image/jpeg', extension: 'jpg',
           width: size, height: size, bytes: bytes.length, quality };
       }
     }
@@ -163,10 +167,66 @@ export async function encodeFrame(source, baseUrl, options = {}) {
   throw new Error('This frame cannot fit in a QR yet. Try a simpler scene or the detail setting.');
 }
 
+let webpUnavailable = false;
+
+/** Keep a useful compression quality before trading away spatial detail.
+ * Encoding runs off the UI thread; old JPEG links and a JPEG failure fallback
+ * remain available without changing camera startup or controls.
+ */
+export async function encodeFrame(source, baseUrl, options = {}) {
+  if (webpUnavailable) return encodeJpegFrame(source, baseUrl, options);
+  if (!source.width || !source.height) throw new Error('The camera frame is not ready.');
+  const budget = Math.min(MAX_URL_BUDGET, Math.max(900, options.maxUrlLength ?? DEFAULT_URL_BUDGET));
+  const initialSize = Math.round(Math.min(384, source.width, source.height, Math.max(24, options.size ?? 192)));
+  const viewer = new URL(baseUrl); viewer.search = ''; viewer.hash = 'q=2.';
+  const byteBudget = Math.min(MAX_WEBP_BYTES, Math.floor((budget - viewer.href.length) * 2 / 3));
+  if (byteBudget < 100) throw new Error('The viewer URL leaves no room for an image.');
+  const canvas = document.createElement('canvas');
+  const context = canvas.getContext('2d', { alpha: false, willReadFrequently: true });
+  if (!context) throw new Error('Canvas is unavailable in this browser.');
+  const sourceEdge = Math.min(source.width, source.height);
+  const sizes = [...new Set([initialSize, 256, 224, 192, 176, 160, 144, 128, 112, 96, 80, 64, 48, 32, 24].filter(size => size <= initialSize))];
+  const maxQuality = Math.round(Math.min(90, Math.max(32, (options.quality ?? 0.85) * 100)));
+  for (const size of sizes) {
+    canvas.width = canvas.height = size;
+    context.imageSmoothingEnabled = true; context.imageSmoothingQuality = 'high';
+    context.drawImage(source, (source.width - sourceEdge) / 2, (source.height - sourceEdge) / 2,
+      sourceEdge, sourceEdge, 0, 0, size, size);
+    const pixels = context.getImageData(0, 0, size, size);
+    let bytes;
+    const encode = quality => encodeWebp(pixels, { quality, method: 4, pass: 1, use_sharp_yuv: 1 });
+    try { bytes = await encode(32); }
+    catch {
+      // A missing/unsupported worker or WASM must not take away the camera.
+      webpUnavailable = true;
+      return encodeJpegFrame(source, baseUrl, options);
+    }
+    if (bytes.length > byteBudget) continue;
+    let best = bytes, quality = 32, low = 32, high = maxQuality;
+    // Use the remaining space for image detail instead of stopping at the
+    // first low-quality image that happens to fit.
+    for (let attempt = 0; attempt < 4 && low < high; attempt++) {
+      const candidateQuality = Math.ceil((low + high) / 2);
+      let candidate;
+      try { candidate = await encode(candidateQuality); }
+      catch {
+        webpUnavailable = true;
+        return encodeJpegFrame(source, baseUrl, options);
+      }
+      if (candidate.length <= byteBudget) { best = candidate; quality = candidateQuality; low = candidateQuality; }
+      else high = candidateQuality - 1;
+    }
+    const url = buildWebpFrameUrl(baseUrl, best);
+    if (url.length > budget) continue;
+    return { ...parseWebpFrameHash(new URL(url).hash), url, quality: quality / 100 };
+  }
+  throw new Error('This frame cannot fit in a QR yet. Try a simpler scene or the detail setting.');
+}
+
 /** Draw at an integer module scale, with a standards-compliant quiet zone. */
 export function renderQr(canvas, url, { scale = 4, fitToPixels } = {}) {
   if (typeof url !== 'string' || url.length > MAX_URL_BUDGET) throw new Error('This frame URL is too large for a QR.');
-  const qr = QRCode.create([{ data: url, mode: 'byte' }], { errorCorrectionLevel: 'L' });
+  const qr = QRCode.create(webpQrSegments(url) || [{ data: url, mode: 'byte' }], { errorCorrectionLevel: 'L' });
   const modules = qr.modules.size;
   const margin = 4;
   const moduleExtent = modules + margin * 2;

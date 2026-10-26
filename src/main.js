@@ -1,19 +1,19 @@
 import './style.css';
 import {icon} from './icons.js';
 import {bindCameraActivation, requestCamera, playCamera, describeCameraFailure, cameraEnvironment, readCameraPermission} from './camera.js';
-import {encodeFrame, parseFrameHash, renderQr} from './frame-codec.js';
+import {encodeFrame, parseFrameHash, renderQr, DEFAULT_URL_BUDGET, FINE_URL_BUDGET} from './frame-codec.js';
 
 const app = document.querySelector('#app');
 const $ = (s) => document.querySelector(s);
 const baseUrl = new URL('./', location.href).href.split('#')[0].split('?')[0];
 const frameBaseUrl = import.meta.env.VITE_FRAME_BASE_URL || (['localhost','127.0.0.1'].includes(location.hostname) ? 'https://taewooopark.github.io/QameRa/' : baseUrl);
 const demo = new URLSearchParams(location.search).has('demo');
-const state = {isDemo:false, stream:null, track:null, caps:{}, facing:'environment', frozen:false, starting:false, cameraRequest:null, diagnostic:null, running:false, frame:null, count:0, exposure:0, zoom:1, filter:'original', fps:1, budget:1150, timer:0, token:0, torch:false};
+const state = {isDemo:false, stream:null, track:null, caps:{}, facing:'environment', frozen:false, starting:false, cameraRequest:null, diagnostic:null, running:false, frame:null, count:0, exposure:0, zoom:1, filter:'original', fps:1, budget:DEFAULT_URL_BUDGET, timer:0, token:0, torch:false};
 const video = document.createElement('video');
 video.muted = true; video.autoplay = true; video.playsInline = true;
 video.setAttribute('playsinline',''); video.setAttribute('muted','');
 video.className = 'capture-source'; video.setAttribute('aria-hidden','true');
-const source = document.createElement('canvas'); source.width=192; source.height=192;
+const source = document.createElement('canvas'); source.width=384; source.height=384;
 const ctx = source.getContext('2d',{willReadFrequently:true});
 let toastTimer;
 
@@ -80,7 +80,7 @@ function bindCamera(){
  const tabs=[...document.querySelectorAll('[data-panel]')];
  tabs.forEach((b,i)=>{b.onclick=()=>{tabs.forEach(x=>{x.classList.toggle('active',x===b);x.setAttribute('aria-selected',x===b);x.tabIndex=x===b?0:-1;$(`#${x.dataset.panel}-panel`).hidden=x!==b;});};b.onkeydown=e=>{if(e.key==='ArrowRight'||e.key==='ArrowLeft'){e.preventDefault();const next=tabs[(i+(e.key==='ArrowRight'?1:2))%3];next.click();next.focus();}};});
  $('#speed').onclick=()=>{state.fps=state.fps===1?2:state.fps===2?0.5:1;$('#speed').textContent=`${state.fps} fps`;toast(state.fps===0.5?'Slow codes. Easier to scan.':`${state.fps} images per second.`);};
- $('#quality').onclick=()=>{state.budget=state.budget===1150?2200:1150;$('#quality').textContent=state.budget===1150?'Std':'Fine';toast(state.budget===1150?'Standard detail. Easier to scan.':'More detail. A denser code.');adjustChanged();};
+ $('#quality').onclick=()=>{state.budget=state.budget===DEFAULT_URL_BUDGET?FINE_URL_BUDGET:DEFAULT_URL_BUDGET;$('#quality').textContent=state.budget===DEFAULT_URL_BUDGET?'Std':'Fine';toast(state.budget===DEFAULT_URL_BUDGET?'Standard detail. Easier to scan.':'More detail. A denser code.');adjustChanged();};
  $('#torch').onclick=async()=>{try{const enabled=!state.torch;await state.track.applyConstraints({advanced:[{torch:enabled}]});state.torch=enabled;$('#torch').classList.toggle('selected',enabled);$('#torch').setAttribute('aria-pressed',enabled);}catch{toast('This camera could not change its torch.');}};
  $('#focus').oninput=async e=>{if(!state.track)return;try{const v=Number(e.target.value);await state.track.applyConstraints({advanced:[{focusMode:'manual',focusDistance:v}]});$('#focus-value').textContent=v.toFixed(2);$('#focus-label').textContent='Manual';}catch{toast('Manual focus is unavailable on this camera.');}};
  $('#focus-auto').onclick=async()=>{if(!state.track||!state.caps.focusMode?.includes('continuous')){toast('This camera manages focus automatically.');return;}try{await state.track.applyConstraints({advanced:[{focusMode:'continuous'}]});$('#focus-value').textContent='Auto';$('#focus-label').textContent='Auto';}catch{toast('Autofocus could not be changed.');}};
@@ -142,10 +142,11 @@ async function startCamera(event){
 }
 function startDemo(){++state.token;stopTracks();clearTimeout(state.timer);state.isDemo=true;state.starting=false;state.caps={};$('#torch').disabled=true;$('#focus').disabled=true;setReady(true);tick(state.token);}
 function drawSample(time){
- const w=source.width;const g=ctx.createLinearGradient(0,0,w,w);g.addColorStop(0,'#e9f2d9');g.addColorStop(1,'#9bbaa1');ctx.fillStyle=g;ctx.fillRect(0,0,w,w);
+ ctx.save();ctx.scale(source.width/192,source.height/192);
+ const w=192;const g=ctx.createLinearGradient(0,0,w,w);g.addColorStop(0,'#e9f2d9');g.addColorStop(1,'#9bbaa1');ctx.fillStyle=g;ctx.fillRect(0,0,w,w);
  ctx.fillStyle='#456a4b';ctx.beginPath();ctx.ellipse(53,98,31,56,-.5,0,Math.PI*2);ctx.fill();ctx.fillStyle='#658754';ctx.beginPath();ctx.ellipse(131,67,27,53,.7,0,Math.PI*2);ctx.fill();
  ctx.strokeStyle='#30533a';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(95,160);ctx.quadraticCurveTo(102+Math.sin(time/2000)*4,93,140,40);ctx.stroke();ctx.beginPath();ctx.moveTo(95,160);ctx.quadraticCurveTo(75,100,35,53);ctx.stroke();
- ctx.fillStyle='#e36d45';ctx.beginPath();ctx.moveTo(65,138);ctx.lineTo(124,138);ctx.lineTo(114,187);ctx.lineTo(76,187);ctx.closePath();ctx.fill();ctx.fillStyle='#f79468';ctx.fillRect(62,134,65,11);
+ ctx.fillStyle='#e36d45';ctx.beginPath();ctx.moveTo(65,138);ctx.lineTo(124,138);ctx.lineTo(114,187);ctx.lineTo(76,187);ctx.closePath();ctx.fill();ctx.fillStyle='#f79468';ctx.fillRect(62,134,65,11);ctx.restore();
 }
 function drawSource(){
  const w=source.width;if(state.isDemo)drawSample(performance.now());else{const crop=Math.min(video.videoWidth,video.videoHeight)/state.zoom;const x=(video.videoWidth-crop)/2,y=(video.videoHeight-crop)/2;ctx.save();if(state.facing==='user'){ctx.translate(w,0);ctx.scale(-1,1);}ctx.drawImage(video,x,y,crop,crop,0,0,w,w);ctx.restore();}
@@ -157,7 +158,7 @@ function drawSource(){
 async function tick(token){
  if(token!==state.token||!state.running||state.frozen||document.hidden)return;
  const start=performance.now();
- try{drawSource();const frame=await encodeFrame(source,frameBaseUrl,{maxUrlLength:state.budget,size:state.budget===1150?96:128});if(token!==state.token||state.frozen||!state.running)return;const qr=paintQr(frame.url);state.frame=frame;state.count++;$('#shutter').disabled=false;$('#save').disabled=false;$('#open-frame').disabled=false;status(state.isDemo?'Demo':'Live','live');$('#frame-data').textContent=`${frame.width} × ${frame.height} · ${(frame.bytes/1024).toFixed(1)} KB · QR ${qr.version}`;$('#frame-number').textContent=`FRAME ${String(state.count).padStart(4,'0')}`;}
+ try{drawSource();const frame=await encodeFrame(source,frameBaseUrl,{maxUrlLength:state.budget,size:state.budget===DEFAULT_URL_BUDGET?192:256});if(token!==state.token||state.frozen||!state.running)return;const qr=paintQr(frame.url);state.frame=frame;state.count++;$('#shutter').disabled=false;$('#save').disabled=false;$('#open-frame').disabled=false;status(state.isDemo?'Demo':'Live','live');$('#frame-data').textContent=`${frame.width} × ${frame.height} · ${(frame.bytes/1024).toFixed(1)} KB · QR ${qr.version}`;$('#frame-number').textContent=`FRAME ${String(state.count).padStart(4,'0')}`;}
  catch(error){if(token!==state.token)return;status('Retrying');console.warn('QameRa encoding:',error.message);}
  if(token===state.token&&state.running&&!state.frozen)state.timer=setTimeout(()=>tick(token),Math.max(50,1000/state.fps-(performance.now()-start)));
 }
@@ -166,7 +167,7 @@ function toggleFreeze(){if(!state.frame)return;state.frozen=!state.frozen;++stat
 function renderViewer(){
  let frame;try{frame=parseFrameHash(location.hash);if(!frame)throw new Error('Missing image');}catch{app.innerHTML=`<main class="viewer error-view"><a class="wordmark" href="${baseUrl}">QameRa</a><h1>This moment<br>got lost.</h1><p>The image link is incomplete or damaged. Try scanning the held QR again.</p><a class="primary-button" href="${baseUrl}">Open QameRa ${icon('arrow')}</a></main>`;return;}
  app.innerHTML=`<main class="viewer"><header class="topbar"><span class="status" data-state="held">Photo</span></header><div class="decoded-image"><img id="decoded" alt="Camera image reconstructed from this QR code"/></div><div class="frame-data"><span>${frame.width} × ${frame.height} · ${(frame.bytes/1024).toFixed(1)} KB</span><span>1:1</span></div><div class="viewer-actions"><button class="primary-button" id="save-photo">Save image ${icon('save')}</button><button class="icon-button" id="share-photo" aria-label="Share image link">${icon('share')}</button></div><a class="viewer-return" href="${baseUrl}">Open camera ${icon('arrow')}</a></main><div id="toast" class="toast" role="status"></div>`;
- $('#decoded').onerror=()=>{toast('This image could not be decoded. Scan the held QR again.');$('#save-photo').disabled=true;};$('#decoded').src=frame.dataUrl;$('#save-photo').onclick=()=>saveData(frame.dataUrl,`qamera-${Date.now()}.jpg`);
+ $('#decoded').onerror=()=>{toast('This image could not be decoded. Scan the held QR again.');$('#save-photo').disabled=true;};$('#decoded').src=frame.dataUrl;$('#save-photo').onclick=()=>saveData(frame.dataUrl,`qamera-${Date.now()}.${frame.extension}`);
  $('#share-photo').onclick=async()=>{try{if(navigator.share)await navigator.share({title:'QameRa — a moment, decoded.',url:location.href});else{await navigator.clipboard.writeText(location.href);toast('Image link copied.');}}catch(e){if(e.name!=='AbortError')toast('Use your browser share button to share this link.');}};
 }
 

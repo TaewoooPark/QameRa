@@ -49,10 +49,10 @@ These are captures of the running application using a generated demo scene. They
 | 1× / 1.5× / 2× | Digitally crop into the camera image. |
 | Torch icon | Toggle the camera light where the device and browser support it. |
 | 1 fps / 2 fps / 0.5 fps | Cycle the QR refresh rate. |
-| Std / Fine | Choose a 1,150- or 2,200-character URL budget. Fine allows more image detail and creates denser codes. |
+| Std / Fine | Choose balanced or finer image detail. Fine uses a denser QR and benefits from freezing the frame before scanning. |
 | Save icon | Download the current QR as an image. |
 | Eye icon | Freeze and reveal the current image on the same phone. |
-| Save image / share icon | On the decoded image page, save the JPEG or share its link. |
+| Save image / share icon | On the decoded image page, save the image or share its link. |
 
 Hardware capabilities vary. In particular, a mobile browser may provide camera access without providing manual focus or torch control. QameRa reports unavailable controls instead of pretending to change the lens.
 
@@ -60,11 +60,17 @@ Hardware capabilities vary. In particular, a mobile browser may provide camera a
 
 ![Light enters a camera, a low-resolution image becomes a QR code, and a second camera reconstructs the image from its link.](docs/concept.svg)
 
-The browser captures a square camera frame, applies the selected adjustments, and compresses it into a small JPEG. Its bytes become a URL-safe string in the link's **fragment** — the part after `#`. That complete URL is encoded as a normal QR code. The receiving page decodes the fragment and displays the JPEG.
+The browser captures a square camera frame, applies the selected adjustments, and compresses it into WebP using a bundled local encoder. Its bytes become a URL-safe string in the link's **fragment** — the part after `#`. A compact alphanumeric representation puts more image data into the QR. The receiving page decodes the fragment and displays the image. Existing JPEG QR links continue to open.
 
 There is **no image upload endpoint, photo database, or per-frame server request**. GitHub Pages serves the application. The picture travels with the QR and the link.
 
-More image detail means a longer link and a denser QR. QameRa reduces image dimensions and JPEG quality to keep the payload bounded. The result is deliberately small and imperfect: enough to recognize the moment, with some of it lost in translation.
+More image detail means a longer link and a denser QR. Standard starts at 192 × 192 and Fine at 256 × 256, reducing dimensions to fit the scene while preserving a useful compression quality. Remaining space improves detail instead of going unused. The actual decoded size depends on the scene; these are target sizes, not guaranteed resolutions.
+
+The WebP encoder runs in a Web Worker so it does not block camera controls. All encoder assets are served with the app. A JPEG fallback remains available if the encoder cannot load. The image still lives entirely inside one ordinary QR.
+
+![Before and after the image encoder update, using the same original test scene.](docs/images/quality-comparison.png)
+
+This comparison was generated in desktop WebKit with the same source image and display size. It is a repeatable browser benchmark, not a physical iPhone screenshot. See the [measurements and scan limits](docs/verification.md#image-quality-update).
 
 ### Practical limits
 

@@ -1,6 +1,8 @@
 # Third-party notices
 
 - [node-qrcode](https://github.com/soldair/node-qrcode), MIT License — QR encoding.
+- [jSquash WebP](https://github.com/jamsinclair/jSquash), Apache-2.0, with [libwebp](https://github.com/webmproject/libwebp), BSD-3-Clause — local image encoding in a Web Worker; encoder assets are bundled with the app.
+- [wasm-feature-detect](https://github.com/GoogleChromeLabs/wasm-feature-detect), Apache-2.0 — selects a compatible WebAssembly encoder.
 - [Vite](https://github.com/vitejs/vite), MIT License — local development and static build.
 - [jsQR](https://github.com/cozmo/jsQR), Apache-2.0 — independent QR decoding in verification only.
 - [ZXing for JS (`@zxing/library`)](https://github.com/zxing-js/library), Apache-2.0 — independent decoding of rendered QR screenshots in development verification only.
